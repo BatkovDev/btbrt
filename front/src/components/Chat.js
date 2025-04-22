@@ -4,95 +4,136 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import '../styles/Chat.css';
 
-// Simple UUID-like generator for sessionId
-const generateSessionId = () => {
-  return 'xxxx-xxxx-xxxx-xxxx'.replace(/[x]/g, () =>
-    Math.floor(Math.random() * 16).toString(16)
-  );
-};
-
-export default function Chat({ user }) {
-  const [messages, setMessages] = useState([
-    {
-      role: 'system',
-      content: `You are LegalKazBot, an AI assistant specialized exclusively in legislation and правоприменительной практике Республики Казахстан. Your scope is strictly limited to:
-    1. Нормативно-правовые акты Республики Казахстан (Конституция, законы, кодексы, подзаконные акты).
-    2. Официальный текст и официальные разъяснения, опубликованные на портале Adilet (https://adilet.zan.kz/).
-    3. Комментарии и судебная практика по РК только в контексте пояснения конкретных норм.
-  
-  — Всегда при ответе:
-     • Указывайте полное наименование акта с указанием даты принятия и последней редакции,  
-     • Приводите номер и название статьи или пункта,  
-     • Даёте прямую ссылку на соответствующую страницу портала Adilet.
-
-  — Если вопрос выходит за рамки законодательства РК или требует профессиональной консультации:
-     «Извините, я не могу прокомментировать этот запрос — моя специализация — законодательство Республики Казахстан. Для получения консультации обратитесь к лицензированному юристу.»`,
-    },
-  ]);
+export default function Chat({ chats, setChats, currentChatId, user }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [sessionId, setSessionId] = useState(generateSessionId()); // Initialize sessionId
+  const [thinkingDots, setThinkingDots] = useState('.');
+  const [displayedMessages, setDisplayedMessages] = useState([]);
   const chatContainerRef = useRef(null);
+  const currentChat = chats.find((c) => c.id === currentChatId) || { id: currentChatId, messages: [] };
 
-  // Fetch chat history when the component mounts or user changes
+  // Animate thinking dots
   useEffect(() => {
-    if (!user) return;
-    const fetchHistory = async () => {
-      try {
-        const response = await fetch('http://localhost:3001/history', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: user.id }),
-        });
-        if (!response.ok) {
-          throw new Error(`Failed to fetch history: ${response.status} ${response.statusText}`);
+    if (loading) {
+      const interval = setInterval(() => {
+        setThinkingDots((prev) => (prev === '...' ? '.' : prev + '.'));
+      }, 500);
+      return () => clearInterval(interval);
+    }
+  }, [loading]);
+
+  // Initialize displayed messages and handle typing animation
+  useEffect(() => {
+    setDisplayedMessages(currentChat.messages.map((msg) => ({ ...msg, displayedContent: msg.content })));
+  }, [currentChat.messages]);
+
+  // Typing animation for new assistant messages
+  useEffect(() => {
+    const lastMessage = currentChat.messages[currentChat.messages.length - 1];
+    if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.displayedContent) {
+      let index = 0;
+      const fullContent = lastMessage.content;
+      const typingInterval = setInterval(() => {
+        if (index < fullContent.length) {
+          setDisplayedMessages((prev) =>
+            prev.map((msg, i) =>
+              i === currentChat.messages.length - 1
+                ? { ...msg, displayedContent: fullContent.slice(0, index + 1) }
+                : msg
+            )
+          );
+          index++;
+        } else {
+          clearInterval(typingInterval);
         }
-        const history = await response.json();
-        const formattedHistory = history.map((msg) => ({
-          role: msg.role, // Use role from backend
-          content: msg.message,
-        }));
-        setMessages((prev) => [...prev, ...formattedHistory]);
-      } catch (err) {
-        console.error('Error fetching chat history:', err);
-      }
-    };
-    fetchHistory();
-  }, [user]);
+      }, 8); // Adjust speed (20ms per character)
+      return () => clearInterval(typingInterval);
+    }
+  }, [currentChat.messages]);
 
   // Scroll to the latest message
   useEffect(() => {
     chatContainerRef.current?.lastElementChild?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [displayedMessages]);
+
+  // Determine greeting based on time of day
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Доброе утро';
+    if (hour < 18) return 'Добрый день';
+    return 'Добрый вечер';
+  };
+
+  // Derive username from email (e.g., "user" from "user@example.com")
+  const username = user?.email ? user.email.split('@')[0] : 'Пользователь';
 
   const sendMessage = async () => {
     if (!input.trim() || !user) return;
 
-    const userMessage = { role: 'user', content: input };
-    const updatedMessages = [...messages, userMessage];
-    setMessages(updatedMessages);
+    const newMessage = { role: 'user', content: input };
+
+    // Optimistically add user's message to the current chat
+    setChats((prevChats) => {
+      const chatExists = prevChats.some((c) => c.id === currentChatId);
+      if (chatExists) {
+        return prevChats.map((c) =>
+          c.id === currentChatId ? { ...c, messages: [...c.messages, newMessage] } : c
+        );
+      } else {
+        return [...prevChats, { id: currentChatId, messages: [newMessage] }];
+      }
+    });
+
     setInput('');
     setLoading(true);
 
     try {
+      // Prepare messages for API request
+      const currentMessages = currentChat.messages || [];
+      const updatedMessages = [
+        {
+          role: 'system',
+          content: `You are AdiletAI, an AI assistant specialized exclusively in the legislation and legal practice of the Republic of Kazakhstan. Your scope is limited to:
+1. Normative-legal acts of Kazakhstan (Constitution, laws, codes, by-laws).
+2. Official texts and explanations published on the Adilet portal (https://adilet.zan.kz/).
+3. Comments and judicial practice in Kazakhstan, only to clarify specific norms.
+
+**Instructions**:
+- Respond in the same language as the user's input (Russian, English, or Kazakh).
+- By default, provide concise, clear, and accessible answers suitable for all citizens, including teenagers, students, schoolchildren, and pensioners. Avoid technical jargon unless necessary.
+- If the user requests detailed information (e.g., "explain in detail" or "provide full details"), include comprehensive explanations, citing relevant laws, articles, and judicial practice.
+- Always include:
+  - Full name of the legal act, its adoption date, and latest revision.
+  - Specific article or clause number and title.
+  - A direct link to the relevant Adilet portal page.
+- If the question is outside Kazakhstan's legislation or requires professional legal advice, respond: 
+  - In Russian: «Извините, я не могу прокомментировать этот запрос — моя специализация — законодательство Республики Казахстан. Для получения консультации обратитесь к лицензированному юристу.»
+  - In English: "Sorry, I cannot comment on this request — my specialization is the legislation of the Republic of Kazakhstan. For advice, please consult a licensed lawyer."
+  - In Kazakh: «Кешіріңіз, мен бұл сұрауға түсініктеме бере алмаймын — менің мамандығым — Қазақстан Республикасының заңнамасы. Кеңес алу үшін лицензиясы бар заңгерге хабарласыңыз.`,
+        },
+        ...currentMessages,
+        newMessage,
+      ];
+
       // Save user message to backend
       const respUser = await fetch('http://localhost:3001/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: user.id,
-          sessionId,
+          sessionId: currentChatId,
           message: input,
           role: 'user',
         }),
       });
-      if (!respUser.ok) {
-        const errorText = await respUser.text();
-        throw new Error(`Failed to save user message: ${respUser.status} ${errorText}`);
-      }
-      console.log('User message saved successfully:', await respUser.json());
+      if (!respUser.ok) throw new Error('Не удалось сохранить сообщение пользователя.');
 
-      // Send to AI
+      // Check API key
+      if (!process.env.REACT_APP_OPENROUTER_API_KEY) {
+        throw new Error('API-ключ не найден в настройках окружения.');
+      }
+
+      // Send to OpenRouter API
       const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -104,14 +145,16 @@ export default function Chat({ user }) {
           messages: updatedMessages,
         }),
       });
-      if (!res.ok) {
-        throw new Error(`AI API request failed: ${res.status} ${await res.text()}`);
-      }
+      if (!res.ok) throw new Error(`Ошибка API: ${await res.text()}`);
       const data = await res.json();
       const aiMessage = { role: 'assistant', content: data.choices[0].message.content };
 
-      // Add AI response to state
-      setMessages((prev) => [...prev, aiMessage]);
+      // Add AI response to chats
+      setChats((prevChats) =>
+        prevChats.map((c) =>
+          c.id === currentChatId ? { ...c, messages: [...c.messages, aiMessage] } : c
+        )
+      );
 
       // Save AI response to backend
       const respAI = await fetch('http://localhost:3001/chats', {
@@ -119,92 +162,81 @@ export default function Chat({ user }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           user_id: user.id,
-          sessionId,
+          sessionId: currentChatId,
           message: aiMessage.content,
           role: 'assistant',
         }),
       });
-      if (!respAI.ok) {
-        const errorText = await respAI.text();
-        throw new Error(`Failed to save AI message: ${respAI.status} ${errorText}`);
-      }
-      console.log('AI message saved successfully:', await respAI.json());
+      if (!respAI.ok) throw new Error('Не удалось сохранить ответ AI.');
     } catch (err) {
-      console.error('Error in sendMessage function:', err);
-      setMessages((prev) => [
-        ...prev,
-        { role: 'system', content: 'Ошибка при сохранении сообщения. Пожалуйста, попробуйте снова.' },
-      ]);
+      console.error('Ошибка:', err);
+      setChats((prevChats) =>
+        prevChats.map((c) =>
+          c.id === currentChatId
+            ? { ...c, messages: [...c.messages, { role: 'system', content: `Ошибка: ${err.message}` }] }
+            : c
+        )
+      );
     } finally {
       setLoading(false);
     }
   };
 
   if (!user) {
-    return <div>Please log in to access the chat.</div>;
+    return <div className="text-gray-500 dark:text-gray-400">Please log in to access the chat.</div>;
   }
 
   return (
-    <div className="chat-container flex flex-col h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100">
-      <div
-        ref={chatContainerRef}
-        role="log"
-        aria-live="polite"
-        className="flex-1 overflow-y-auto p-6 space-y-4"
-      >
-        {messages
-          .filter((m) => m.role !== 'system') // Filter out system messages
-          .map((m, i) => (
+    <div className="apb flex-1 flex flex-col h-screen bg-gray-50 dark:bg-gray-900">
+      <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-6 space-y-4 flex flex-col">
+        {currentChat.messages.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center">
+            <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100">
+              {getGreeting()}, {username}!
+            </h2>
+            <p className="text-gray-500 dark:text-gray-400 mt-2">Чем могу услужить?</p>
+          </div>
+        ) : (
+          displayedMessages.map((msg, index) => (
             <div
-              key={i}
-              className={`flex items-start ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
+              key={index}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              {m.role === 'assistant' && (
-                <img src="/bot-avatar.png" alt="Бот" className="w-8 h-8 rounded-full mr-2" />
-              )}
               <div
-                className={`max-w-[70%] px-4 py-2 rounded-2xl shadow-sm break-words ${
-                  m.role === 'user'
-                    ? 'bg-blue-500 text-white dark:bg-blue-600'
-                    : 'bg-gray-200 dark:bg-gray-800 dark:text-gray-200'
+                className={`max-w-[70%] p-3 rounded-lg ${
+                  msg.role === 'user'
+                    ? 'bg-blue-500 text-white'
+                    : 'bg-white dark:bg-gray-700 text-gray-800 dark:text-gray-200'
                 }`}
               >
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeRaw]}
-                  components={{
-                    strong: ({ node, ...props }) => (
-                      <strong className="font-bold text-indigo-600" {...props} />
-                    ),
-                    mark: ({ node, ...props }) => (
-                      <mark className="bg-yellow-200 dark:bg-yellow-600 px-1 rounded" {...props} />
-                    ),
-                  }}
-                >
-                  {m.content}
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                  {msg.displayedContent || msg.content}
                 </ReactMarkdown>
               </div>
-              {m.role === 'user' && (
-                <img src="/user-avatar.jpg" alt="Вы" className="w-8 h-8 rounded-full ml-2" />
-              )}
             </div>
-          ))}
+          ))
+        )}
+        {loading && (
+          <div className="flex justify-center items-center p-4">
+            <p className="text-gray-500 dark:text-gray-400">Думаю над ответом{thinkingDots}</p>
+          </div>
+        )}
       </div>
-      <div className="sticky bottom-0 bg-white dark:bg-gray-800 border-t p-4 flex items-center">
+      <div className="p-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-300 flex items-center">
         <input
           type="text"
-          className="flex-1 bg-gray-100 dark:bg-gray-700 rounded-full px-4 py-2 focus:outline-none focus:ring"
-          placeholder="Введите сообщение..."
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+          placeholder="Введите сообщение..."
+          className="flex-1 p-2 rounded-lg border border-gray-300 dark:bg-gray-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <button
           onClick={sendMessage}
           disabled={!input.trim() || loading}
-          className="ml-4 p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 focus:outline-none focus:ring"
+          className="ml-2 p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-400"
         >
-          ↗️
+          Отправить
         </button>
       </div>
     </div>

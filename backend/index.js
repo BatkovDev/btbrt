@@ -14,6 +14,9 @@ const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/chat_app';
 app.use(cors());
 app.use(express.json());
 
+// mongodb
+// login: lisztni
+// pass: ib44My0i0gkRxVwb
 // MongoDB connection
 mongoose.connect(MONGO_URI, {
   useNewUrlParser: true,

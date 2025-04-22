@@ -1,1 +1,25 @@
-2
+use chat_app
+
+db.createCollection("users")
+
+db.users.insertOne({
+  email: "test@example.com",
+  password: "$2b$10$examplehashedpassword",
+})
+
+db.createCollection("chats")
+
+db.chats.insertOne({
+  user: ObjectId("your_user_id_here"),
+  sessionId: "123456789",
+  message: "Привет, это тестовое сообщение",
+  role: "user",
+  timestamp: new Date()
+})
+
+
+
+
+use chat_app
+db.users.find().pretty()
+db.chats.find().pretty()

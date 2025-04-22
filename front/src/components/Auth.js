@@ -7,21 +7,24 @@ function Auth({ setUser }) {
   const [error, setError] = useState('');
 
   const handleSubmit = async () => {
-    console.log(1231);
     const endpoint = isLogin ? '/login' : '/register';
     try {
       const response = await fetch(`http://localhost:3001${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }) // Sending email and password
+        body: JSON.stringify({ email, password }),
       });
       const data = await response.json();
 
       if (data.error) {
-        setError(data.error); // Display error from backend (e.g., "User already exists")
+        setError(data.error);
       } else {
-        setUser({ id: data.id, email: data.email || email }); // Set user state with response data
+        const userData = { id: data.id, email: data.email || email };
+        setUser(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
         setError('');
+        setEmail('');
+        setPassword('');
       }
     } catch (err) {
       setError('Error connecting to the server');
