@@ -110,4 +110,5 @@ table thead {
 }
 .app-p .chat-container {
   padding-bottom: 50px;
+  width: 100%;
 }
