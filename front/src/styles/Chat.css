@@ -1,0 +1,113 @@
+/* Chat.css */
+
+/* Общие улучшения прокрутки */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: rgba(100, 116, 139, 0.4); /* slate-500 with transparency */
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(100, 116, 139, 0.7);
+}
+
+/* Анимация появления сообщений */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+[role="log"] > div {
+  animation: fadeInUp 0.25s ease-out;
+}
+
+/* Сообщения */
+.message-bubble {
+  transition: background-color 0.3s, box-shadow 0.3s;
+  will-change: background-color, box-shadow;
+}
+
+.message-bubble:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Input field soft focus effect */
+input:focus {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.3); /* blue-500 with alpha */
+  transition: box-shadow 0.2s ease;
+}
+
+/* Send button hover effect */
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button:not(:disabled):hover {
+  transform: translateY(-1px) scale(1.02);
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+/* Аватары */
+img.rounded-full {
+  transition: transform 0.2s;
+}
+
+img.rounded-full:hover {
+  transform: scale(1.05);
+}
+
+/* Подсветка кода (если markdown включает код) */
+pre,
+code {
+  background-color: #1e293b; /* dark slate */
+  color: #f8fafc; /* light text */
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.375rem;
+  font-family: "Fira Code", monospace;
+  font-size: 0.875rem;
+}
+
+/* Highlighting inline code */
+code {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: #d63384;
+}
+
+/* Markdown tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+}
+
+table th,
+table td {
+  border: 1px solid #cbd5e1;
+  padding: 0.5rem;
+  text-align: left;
+}
+
+table thead {
+  background-color: #f1f5f9;
+  color: #1e293b;
+}
+
+/* Dark mode override */
+.dark table thead {
+  background-color: #334155;
+  color: #f8fafc;
+}
+.app-p .chat-container {
+  padding-bottom: 50px;
+}
