@@ -4,6 +4,13 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import '../styles/Chat.css';
 
+// Simple UUID-like generator for sessionId
+const generateSessionId = () => {
+  return 'xxxx-xxxx-xxxx-xxxx'.replace(/[x]/g, () =>
+    Math.floor(Math.random() * 16).toString(16)
+  );
+};
+
 export default function Chat({ user }) {
   const [messages, setMessages] = useState([
     {
@@ -24,6 +31,7 @@ export default function Chat({ user }) {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [sessionId, setSessionId] = useState(generateSessionId()); // Initialize sessionId
   const chatContainerRef = useRef(null);
 
   // Fetch chat history when the component mounts or user changes
@@ -36,9 +44,12 @@ export default function Chat({ user }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ user_id: user.id }),
         });
+        if (!response.ok) {
+          throw new Error(`Failed to fetch history: ${response.status} ${response.statusText}`);
+        }
         const history = await response.json();
         const formattedHistory = history.map((msg) => ({
-          role: 'user',
+          role: msg.role, // Use role from backend
           content: msg.message,
         }));
         setMessages((prev) => [...prev, ...formattedHistory]);
@@ -64,13 +75,24 @@ export default function Chat({ user }) {
     setLoading(true);
 
     try {
+      // Save user message to backend
       const respUser = await fetch('http://localhost:3001/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user.id, message: input }),
+        body: JSON.stringify({
+          user_id: user.id,
+          sessionId,
+          message: input,
+          role: 'user',
+        }),
       });
-      console.log('User message save:', respUser.status);
+      if (!respUser.ok) {
+        const errorText = await respUser.text();
+        throw new Error(`Failed to save user message: ${respUser.status} ${errorText}`);
+      }
+      console.log('User message saved successfully:', await respUser.json());
 
+      // Send to AI
       const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -82,18 +104,37 @@ export default function Chat({ user }) {
           messages: updatedMessages,
         }),
       });
+      if (!res.ok) {
+        throw new Error(`AI API request failed: ${res.status} ${await res.text()}`);
+      }
       const data = await res.json();
       const aiMessage = { role: 'assistant', content: data.choices[0].message.content };
 
+      // Add AI response to state
       setMessages((prev) => [...prev, aiMessage]);
 
-      await fetch('http://localhost:3001/chats', {
+      // Save AI response to backend
+      const respAI = await fetch('http://localhost:3001/chats', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ user_id: user.id, message: aiMessage.content }),
+        body: JSON.stringify({
+          user_id: user.id,
+          sessionId,
+          message: aiMessage.content,
+          role: 'assistant',
+        }),
       });
+      if (!respAI.ok) {
+        const errorText = await respAI.text();
+        throw new Error(`Failed to save AI message: ${respAI.status} ${errorText}`);
+      }
+      console.log('AI message saved successfully:', await respAI.json());
     } catch (err) {
       console.error('Error in sendMessage function:', err);
+      setMessages((prev) => [
+        ...prev,
+        { role: 'system', content: 'Ошибка при сохранении сообщения. Пожалуйста, попробуйте снова.' },
+      ]);
     } finally {
       setLoading(false);
     }
@@ -111,41 +152,43 @@ export default function Chat({ user }) {
         aria-live="polite"
         className="flex-1 overflow-y-auto p-6 space-y-4"
       >
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`flex items-start ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            {m.role === 'assistant' && (
-              <img src="/bot-avatar.png" alt="Бот" className="w-8 h-8 rounded-full mr-2" />
-            )}
+        {messages
+          .filter((m) => m.role !== 'system') // Filter out system messages
+          .map((m, i) => (
             <div
-              className={`max-w-[70%] px-4 py-2 rounded-2xl shadow-sm break-words ${
-                m.role === 'user'
-                  ? 'bg-blue-500 text-white dark:bg-blue-600'
-                  : 'bg-gray-200 dark:bg-gray-800 dark:text-gray-200'
-              }`}
+              key={i}
+              className={`flex items-start ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm]}
-                rehypePlugins={[rehypeRaw]}
-                components={{
-                  strong: ({ node, ...props }) => (
-                    <strong className="font-bold text-indigo-600" {...props} />
-                  ),
-                  mark: ({ node, ...props }) => (
-                    <mark className="bg-yellow-200 dark:bg-yellow-600 px-1 rounded" {...props} />
-                  ),
-                }}
+              {m.role === 'assistant' && (
+                <img src="/bot-avatar.png" alt="Бот" className="w-8 h-8 rounded-full mr-2" />
+              )}
+              <div
+                className={`max-w-[70%] px-4 py-2 rounded-2xl shadow-sm break-words ${
+                  m.role === 'user'
+                    ? 'bg-blue-500 text-white dark:bg-blue-600'
+                    : 'bg-gray-200 dark:bg-gray-800 dark:text-gray-200'
+                }`}
               >
-                {m.content}
-              </ReactMarkdown>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  rehypePlugins={[rehypeRaw]}
+                  components={{
+                    strong: ({ node, ...props }) => (
+                      <strong className="font-bold text-indigo-600" {...props} />
+                    ),
+                    mark: ({ node, ...props }) => (
+                      <mark className="bg-yellow-200 dark:bg-yellow-600 px-1 rounded" {...props} />
+                    ),
+                  }}
+                >
+                  {m.content}
+                </ReactMarkdown>
+              </div>
+              {m.role === 'user' && (
+                <img src="/user-avatar.jpg" alt="Вы" className="w-8 h-8 rounded-full ml-2" />
+              )}
             </div>
-            {m.role === 'user' && (
-              <img src="/user-avatar.jpg" alt="Вы" className="w-8 h-8 rounded-full ml-2" />
-            )}
-          </div>
-        ))}
+          ))}
       </div>
       <div className="sticky bottom-0 bg-white dark:bg-gray-800 border-t p-4 flex items-center">
         <input
